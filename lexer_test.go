@@ -1,9 +1,160 @@
 package metricsql
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
+
+func TestScanNumMultiplier(t *testing.T) {
+	f := func(s string, lenExpected int) {
+		t.Helper()
+		sLen := scanNumMultiplier(s)
+		if sLen != lenExpected {
+			t.Fatalf("unexpected len returned from scanNumMultiplier(%q); got %d; want %d", s, sLen, lenExpected)
+		}
+	}
+	f("", 0)
+	f("foo", 0)
+	f("k", 1)
+	f("KB", 2)
+	f("Ki", 2)
+	f("kiB", 3)
+	f("M", 1)
+	f("Mb", 2)
+	f("mi", 2)
+	f("MiB", 3)
+	f("g", 1)
+	f("GB", 2)
+	f("GI", 2)
+	f("GIB", 3)
+	f("t", 1)
+	f("tB", 2)
+	f("tI", 2)
+	f("tIb", 3)
+
+	f("Gb   ", 2)
+	f("tIb + 5", 3)
+}
+
+func TestScanPositiveNumberSuccess(t *testing.T) {
+	f := func(s, nsExpected string) {
+		t.Helper()
+		ns, err := scanPositiveNumber(s)
+		if err != nil {
+			t.Fatalf("unexpected error in scanPositiveNumber(%q): %s", s, err)
+		}
+		if ns != nsExpected {
+			t.Fatalf("unexpected number scanned from %q; got %q; want %q", s, ns, nsExpected)
+		}
+	}
+	f("123", "123")
+	f("123+5", "123")
+	f("1.23 ", "1.23")
+	f("12e5", "12e5")
+	f("1.3E-3/5", "1.3E-3")
+	f("234.", "234.")
+	f("234. + foo", "234.")
+	f("0xfe", "0xfe")
+	f("0b0110", "0b0110")
+	f("0O765", "0O765")
+	f("0765", "0765")
+	f("2k*34", "2k")
+	f("2.3Kb / 43", "2.3Kb")
+	f("3ki", "3ki")
+	f("4.5Kib", "4.5Kib")
+	f("2m", "2m")
+	f("2.3Mb", "2.3Mb")
+	f("3Mi", "3Mi")
+	f("4.5mib", "4.5mib")
+	f("2G", "2G")
+	f("2.3gB", "2.3gB")
+	f("3gI", "3gI")
+	f("4.5GiB / foo", "4.5GiB")
+	f("2T", "2T")
+	f("2.3tb", "2.3tb")
+	f("3tI", "3tI")
+	f("4.5TIB   ", "4.5TIB")
+}
+
+func TestScanPositiveNumberFailure(t *testing.T) {
+	f := func(s string) {
+		t.Helper()
+		ns, err := scanPositiveNumber(s)
+		if err == nil {
+			t.Fatalf("expecting non-nil error in scanPositiveNumber(%q); got result %q", s, ns)
+		}
+	}
+	f("")
+	f("foobar")
+	f("123e")
+	f("1233Ebc")
+	f("12.34E+abc")
+	f("12.34e-")
+}
+
+func TestParsePositiveNumberSuccess(t *testing.T) {
+	f := func(s string, vExpected float64) {
+		t.Helper()
+		v, err := parsePositiveNumber(s)
+		if err != nil {
+			t.Fatalf("unexpected error in parsePositiveNumber(%q): %s", s, err)
+		}
+		if math.IsNaN(v) {
+			if !math.IsNaN(vExpected) {
+				t.Fatalf("unexpected value returned from parsePositiveNumber(%q); got %v; want %v", s, v, vExpected)
+			}
+		} else if v != vExpected {
+			t.Fatalf("unexpected value returned from parsePositiveNumber(%q); got %v; want %v", s, v, vExpected)
+		}
+	}
+	f("123", 123)
+	f("1.23", 1.23)
+	f("12e5", 12e5)
+	f("1.3E-3", 1.3e-3)
+	f("234.", 234)
+	f("Inf", math.Inf(1))
+	f("NaN", math.NaN())
+	f("0xfe", 0xfe)
+	f("0b0110", 0b0110)
+	f("0O765", 0o765)
+	f("0765", 0765)
+	f("2k", 2*1000)
+	f("2.3Kb", 2.3*1000)
+	f("3ki", 3*1024)
+	f("4.5Kib", 4.5*1024)
+	f("2m", 2*1000*1000)
+	f("2.3Mb", 2.3*1000*1000)
+	f("3Mi", 3*1024*1024)
+	f("4.5mib", 4.5*1024*1024)
+	f("2G", 2*1000*1000*1000)
+	f("2.3gB", 2.3*1000*1000*1000)
+	f("3gI", 3*1024*1024*1024)
+	f("4.5GiB", 4.5*1024*1024*1024)
+	f("2T", 2*1000*1000*1000*1000)
+	f("2.3tb", 2.3*1000*1000*1000*1000)
+	f("3tI", 3*1024*1024*1024*1024)
+	f("4.5TIB", 4.5*1024*1024*1024*1024)
+}
+
+func TestParsePositiveNumberFailure(t *testing.T) {
+	f := func(s string) {
+		t.Helper()
+		v, err := parsePositiveNumber(s)
+		if err == nil {
+			t.Fatalf("expecting non-nil error in parsePositiveNumber(%q); got result %v", s, v)
+		}
+	}
+	f("")
+	f("0xqwert")
+	f("foobar")
+	f("234.foobar")
+	f("123e")
+	f("1233Ebc")
+	f("12.34E+abc")
+	f("12.34e-")
+	f("12.weKB")
+}
 
 func TestIsSpecialIntegerPrefix(t *testing.T) {
 	f := func(s string, resultExpected bool) {
@@ -41,15 +192,23 @@ func TestUnescapeIdent(t *testing.T) {
 	}
 	f("", "")
 	f("a", "a")
-	f("\\", "")
+	f("\\", `\`)
 	f(`\\`, `\`)
 	f(`\foo\-bar`, `foo-bar`)
 	f(`a\\\\b\"c\d`, `a\\b"cd`)
 	f(`foo.bar:baz_123`, `foo.bar:baz_123`)
 	f(`foo\ bar`, `foo bar`)
 	f(`\x21`, `!`)
-	f(`\xeDfoo\x2Fbar\-\xqw\x`, "\xedfoo\x2fbar-xqwx")
+	f(`\X21`, `!`)
+	f(`\x7Dfoo\x2Fbar\-\xqw\x`, "}foo/bar-\\xqw\\x")
 	f(`\п\р\и\в\е\т123`, "привет123")
+	f(`123`, `123`)
+	f(`\123`, `123`)
+	f(`привет\-\foo`, "привет-foo")
+	f(`\u0965`, "\u0965")
+	f(`\U0965`, "\u0965")
+	f(`\u202c`, "\u202c")
+	f(`\U202ca`, "\u202ca")
 }
 
 func TestAppendEscapedIdent(t *testing.T) {
@@ -63,9 +222,13 @@ func TestAppendEscapedIdent(t *testing.T) {
 	f(`a`, `a`)
 	f(`a.b:c_23`, `a.b:c_23`)
 	f(`a b-cd+dd\`, `a\ b\-cd\+dd\\`)
-	f("a\x1E\x20\xee", `a\x1e\ \xee`)
-	f("\x2e\x2e", `\x2e.`)
-	f("привет123", `\п\р\и\в\е\т123`)
+	f("a\x1E\x20\x7e", `a\x1e\ \~`)
+	f("\x2e\x2e", `\..`)
+	f("123", `\123`)
+	f("+43.6", `\+43.6`)
+	f("привет123(a-b)", `привет123\(a\-b\)`)
+	f("\u0965", `\॥`)
+	f("\u202c", `\u202c`)
 }
 
 func TestScanIdent(t *testing.T) {
@@ -81,8 +244,23 @@ func TestScanIdent(t *testing.T) {
 	f("a+b", "a")
 	f("foo()", "foo")
 	f(`a\-b+c`, `a\-b`)
-	f(`a\ b\\\ c\`, `a\ b\\\ c\`)
+	f(`a\ b\\\ c\`, `a\ b\\\ c`)
 	f(`\п\р\и\в\е\т123`, `\п\р\и\в\е\т123`)
+	f(`привет123!foo`, `привет123`)
+	f(`\1fooЫ+bar`, `\1fooЫ`)
+	f(`\u7834*аа`, `\u7834`)
+	f(`\U7834*аа`, `\U7834`)
+	f(`\x7834*аа`, `\x7834`)
+	f(`\X7834*аа`, `\X7834`)
+	f(`a\x+b`, `a`)
+	f(`a\x1+b`, `a`)
+	f(`a\x12+b`, `a\x12`)
+	f(`a\u+b`, `a`)
+	f(`a\u1+b`, `a`)
+	f(`a\u12+b`, `a`)
+	f(`a\u123+b`, `a`)
+	f(`a\u1234+b`, `a\u1234`)
+	f("a\\\u202c", `a`)
 }
 
 func TestLexerNextPrev(t *testing.T) {
@@ -291,12 +469,8 @@ func TestLexerError(t *testing.T) {
 	testLexerError(t, `'`)
 	testLexerError(t, "`")
 
-	// Unrecognized char
-	testLexerError(t, "тест")
-
 	// Invalid numbers
 	testLexerError(t, `.`)
-	testLexerError(t, `123.`)
 	testLexerError(t, `12e`)
 	testLexerError(t, `1.2e`)
 	testLexerError(t, `1.2E+`)
@@ -363,6 +537,13 @@ func TestPositiveDurationSuccess(t *testing.T) {
 	f("1.23", 45, 1230)
 	f("0.56", 12, 560)
 	f(".523e2", 21, 52300)
+
+	// Duration suffixes in mixed case.
+	f("1Ms", 45, 1)
+	f("1mS", 45, 1)
+	f("1H", 45, 1*60*60*1000)
+	f("1D", 45, 1*24*60*60*1000)
+	f("1Y", 45, 1*365*24*60*60*1000)
 }
 
 func TestPositiveDurationError(t *testing.T) {
@@ -382,9 +563,16 @@ func TestPositiveDurationError(t *testing.T) {
 	f("1.23mm")
 	f("123q")
 	f("-123s")
+	f("1.23.4434s")
+	f("1mi")
+	f("1mb")
 
 	// Too big duration
 	f("10000000000y")
+
+	// Uppercase M isn't a duration, but a 1e6 multiplier.
+	// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3664
+	f("1M")
 }
 
 func TestDurationSuccess(t *testing.T) {
@@ -438,6 +626,15 @@ func TestDurationSuccess(t *testing.T) {
 	f("1.23", 45, 1230)
 	f("-0.56", 12, -560)
 	f("-.523e2", 21, -52300)
+
+	// Duration suffix in mixed case.
+	f("-1Ms", 10, -1)
+	f("-2.5mS", 10, -2)
+	f("-1mS", 10, -1)
+	f("-1H", 10, -1*60*60*1000)
+	f("-3.H", 10, -3*60*60*1000)
+	f("1D", 10, 1*24*60*60*1000)
+	f("-.1Y", 10, -0.1*365*24*60*60*1000)
 }
 
 func TestDurationError(t *testing.T) {
@@ -457,4 +654,10 @@ func TestDurationError(t *testing.T) {
 	f("1.23mm")
 	f("123q")
 	f("-123q")
+	f("-5.3mb")
+	f("-5.3mi")
+
+	// M isn't a duration, but a 1e6 multiplier.
+	// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3664
+	f("-5.3M")
 }

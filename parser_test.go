@@ -21,11 +21,11 @@ func TestParseSuccess(t *testing.T) {
 		t.Helper()
 		another(s, s)
 	}
-
 	// metricExpr
 	same(`{}`)
 	same(`{}[5m]`)
 	same(`{}[5m:]`)
+	same(`{}[5M:]`)
 	same(`{}[:]`)
 	another(`{}[: ]`, `{}[:]`)
 	same(`{}[:3s]`)
@@ -34,6 +34,7 @@ func TestParseSuccess(t *testing.T) {
 	another(`{}[ 5m : 3s ]`, `{}[5m:3s]`)
 	same(`{} offset 5m`)
 	same(`{} offset -5m`)
+	same(`{} offset 5M`)
 	same(`{}[5m] offset 10y`)
 	same(`{}[5.3m:3.4s] offset 10y`)
 	same(`{}[:3.4s] offset 10y`)
@@ -71,6 +72,20 @@ func TestParseSuccess(t *testing.T) {
 	same(`metric{foo="bar", b="sdfsdf"}[2.34:5.6] offset 3600.5`)
 	same(`metric{foo="bar", b="sdfsdf"}[234:56] offset -3600`)
 	another(`  metric  {  foo  = "bar"  }  [  2d ]   offset   10h  `, `metric{foo="bar"}[2d] offset 10h`)
+	// @ modifier
+	// See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
+	same(`foo @ 123.45`)
+	same(`foo\@ @ 123.45`)
+	same(`{foo=~"bar"} @ end()`)
+	same(`foo{bar="baz"} @ start()`)
+	same(`foo{bar="baz"}[5m] @ 12345`)
+	same(`foo{bar="baz"}[5m:4s] offset 5m @ (end() - 3.5m)`)
+	another(`foo{bar="baz"}[5m:4s] @ (end() - 3.5m) offset 2.4h`, `foo{bar="baz"}[5m:4s] offset 2.4h @ (end() - 3.5m)`)
+	another(`foo @ start() + (bar offset 3m @ end()) / baz OFFSET -5m`, `foo @ start() + (bar offset 3m @ end() / baz offset -5m)`)
+	same(`sum(foo) @ start() + rate(bar @ (end() - 5m))`)
+	another(`time() @ (start())`, `time() @ start()`)
+	another(`time() @ (start()+(1+1))`, `time() @ (start() + 2)`)
+	same(`time() @ (end() - 10m)`)
 	// metric name matching keywords
 	same("rate")
 	same("RATE")
@@ -84,6 +99,8 @@ func TestParseSuccess(t *testing.T) {
 	same("with")
 	same("WITH")
 	same("With")
+	same("offset")
+	same("keep_metric_names")
 	same("alias")
 	same(`alias{foo="bar"}`)
 	same(`aLIas{alias="aa"}`)
@@ -91,7 +108,9 @@ func TestParseSuccess(t *testing.T) {
 	// identifiers with with escape chars
 	same(`foo\ bar`)
 	same(`foo\-bar\{{baz\+bar="aa"}`)
-	another(`\x2E\x2ef\oo{b\xEF\ar="aa"}`, `\x2e.foo{b\xefar="aa"}`)
+	another(`\x2E\x2ef\oo{b\xEF\ar="aa"}`, `\..foo{bïar="aa"}`)
+	same(`温度{房间="水电费"}[5m] offset 10m`)
+	another(`\温\度{\房\间="水电费"}[5m] offset 10m`, `温度{房间="水电费"}[5m] offset 10m`)
 	same(`sum(fo\|o) by (b\|a, x)`)
 	another(`sum(x) by (b\x7Ca)`, `sum(x) by (b\|a)`)
 	// Duplicate filters
@@ -124,6 +143,22 @@ func TestParseSuccess(t *testing.T) {
 
 	// numberExpr
 	same(`1`)
+	same(`123.`)
+	another(`-123.`, `-123`)
+	same(`foo - 123.`)
+	same(`12.e+4`)
+	same(`12Ki`)
+	same(`12Kib`)
+	same(`12Mi`)
+	same(`12Mb`)
+	same(`12MB`)
+	same(`(rate(foo)[5m] * 8) > 45Mi`)
+	same(`(rate(foo)[5m] * 8) > 45mi`)
+	same(`(rate(foo)[5m] * 8) > 45mI`)
+	same(`(rate(foo)[5m] * 8) > 45Mib`)
+	same(`1.23Gb`)
+	same(`foo - 23M`)
+	another(`-1.23Gb`, `-1.23e+09`)
 	same(`1.23`)
 	same(`0.23`)
 	same(`1.2e+45`)
@@ -134,31 +169,32 @@ func TestParseSuccess(t *testing.T) {
 	same(`-1.2e+45`)
 	same(`-1.2e-45`)
 	same(`-1.2e-45`)
-	another(`12.5E34`, `1.25e+35`)
+	same(`12.5E34`)
 	another(`-.2`, `-0.2`)
 	another(`-.2E-2`, `-0.002`)
 	same(`NaN`)
-	another(`nan`, `NaN`)
-	another(`NAN`, `NaN`)
-	another(`nAN`, `NaN`)
-	another(`Inf`, `+Inf`)
-	another(`INF`, `+Inf`)
-	another(`inf`, `+Inf`)
-	another(`+Inf`, `+Inf`)
-	another(`-Inf`, `-Inf`)
+	same(`nan`)
+	same(`NAN`)
+	same(`nAN`)
+	same(`Inf`)
+	same(`INF`)
+	same(`inf`)
+	another(`+Inf`, `Inf`)
+	same(`-Inf`)
 	another(`-inF`, `-Inf`)
-	another(`0x12`, `18`)
-	another(`0x3b`, `59`)
+	same(`0x12`)
+	same(`0x3b`)
 	another(`-0x3b`, `-59`)
-	another(`+0X3B`, `59`)
-	another(`0b1011`, `11`)
-	another(`073`, `59`)
+	another(`+0X3B`, `0X3B`)
+	same(`0b1011`)
+	same(`073`)
 	another(`-0o12`, `-10`)
 
 	// durationExpr
 	same(`1h`)
 	another(`-1h`, `0 - 1h`)
 	same(`0.34h4m5s`)
+	same(`0.34H4m5S`)
 	another(`-0.34h4m5s`, `0 - 0.34h4m5s`)
 	same(`sum_over_tme(m[1h]) / 1h`)
 	same(`sum_over_time(m[3600]) / 3600`)
@@ -269,6 +305,9 @@ func TestParseSuccess(t *testing.T) {
 	same(`f(job, foo)`)
 	same(`F(Job, Foo)`)
 	another(` FOO (bar) + f  (  m  (  ),ff(1 + (  2.5)) ,M[5m ]  , "ff"  )`, `FOO(bar) + f(m(), ff(3.5), M[5m], "ff")`)
+	same(`rate(foo[5m]) keep_metric_names`)
+	another(`log2(foo) KEEP_metric_names + 1 / increase(bar[5m]) keep_metric_names offset 1h @ 435`,
+		`log2(foo) keep_metric_names + (1 / increase(bar[5m]) keep_metric_names offset 1h @ 435)`)
 	// funcName matching keywords
 	same(`by(2)`)
 	same(`BY(2)`)
@@ -438,6 +477,19 @@ func TestParseSuccess(t *testing.T) {
 	   hitRate(cacheHits, cacheMisses)`,
 		`sum(rate(cacheHits{job="foo", instance="bar"})) by (job, instance) / (sum(rate(cacheHits{job="foo", instance="bar"})) by (job, instance) + sum(rate(cacheMisses{job="foo", instance="bar"})) by (job, instance))`)
 	another(`with(y=123,z=5) union(with(y=3,f(x)=x*y) f(2) + f(3), with(x=5,y=2) x*y*z)`, `union(15, 50)`)
+
+	another(`with(sum=123,now=5) union(with(sum=3,f(x)=x*sum) f(2) + f(3), with(x=5,sum=2) x*sum*now)`, `union(15, 50)`)
+	another(`WITH(now = sum(rate(my_metric_total)), before = sum(rate(my_metric_total) offset 1h)) now/before*100`, `(sum(rate(my_metric_total)) / sum(rate(my_metric_total) offset 1h)) * 100`)
+	another(`with (sum = x) sum`, `x`)
+	another(`with (clamp_min=x) clamp_min`, `x`)
+	another(`with (now=now(), sum=sum()) now`, `now()`)
+	another(`with (now=now(), sum=sum()) now()`, `now()`)
+	another(`with (now(a)=now()+a) now(1)`, `now() + 1`)
+	another(`with (rate(a,b)=a+b) rate(1,2)`, `3`)
+	another(`with (now=now(), sum=sum()) x`, `x`)
+	another(`with (rate(a) = b) c`, `c`)
+	another(`rate(x) + with (rate(a,b)=a*b) rate(2,b)`, `rate(x) + (2 * b)`)
+	another(`with (sum(a,b)=a+b) sum(c,d)`, `c + d`)
 }
 
 func TestParseError(t *testing.T) {
@@ -512,6 +564,18 @@ func TestParseError(t *testing.T) {
 	f(`m{x=y}`)
 	f(`m{x=y/5}`)
 	f(`m{x=y+5}`)
+	f(`m keep_metric_names`) // keep_metric_names cannot be used with metric expression
+
+	// Invalid @ modifier
+	f(`@`)
+	f(`foo @`)
+	f(`foo @ ! `)
+	f(`foo @ @`)
+	f(`foo @ offset 5m`)
+	f(`foo @ [5m]`)
+	f(`foo offset @ 5m`)
+	f(`foo @ 123 offset 5m @ 456`)
+	f(`foo offset 5m @`)
 
 	// Invalid regexp
 	f(`foo{bar=~"x["}`)
@@ -534,14 +598,14 @@ func TestParseError(t *testing.T) {
 	f(`"" $`)
 	f(`"foo" +`)
 	f(`n{"foo" + m`)
+	f(`"foo" keep_metric_names`)
+	f(`keep_metric_names "foo"`)
 
 	// invalid numberExpr
-	f(`12.`)
 	f(`1.2e`)
 	f(`23e-`)
 	f(`23E+`)
 	f(`.`)
-	f(`-12.`)
 	f(`-1.2e`)
 	f(`-23e-`)
 	f(`-23E+`)
@@ -550,11 +614,12 @@ func TestParseError(t *testing.T) {
 	f(`-$$`)
 	f(`+$$`)
 	f(`23 $$`)
+	f(`1 keep_metric_names`)
+	f(`keep_metric_names 1`)
 
 	// invalid binaryOpExpr
 	f(`+`)
 	f(`1 +`)
-	f(`1 + 2.`)
 	f(`3 unless`)
 	f(`23 + on (foo)`)
 	f(`m + on (,) m`)
@@ -595,6 +660,7 @@ func TestParseError(t *testing.T) {
 	f(`1)`)
 	f(`(,)`)
 	f(`(1)$`)
+	f(`(foo) keep_metric_names`)
 
 	// invalid funcExpr
 	f(`f $`)
@@ -614,6 +680,8 @@ func TestParseError(t *testing.T) {
 	f(`f() foo (a)`)
 	f(`f bar (x) (b)`)
 	f(`f bar (x)`)
+	f(`keep_metric_names f()`)
+	f(`f() abc`)
 
 	// invalid aggrFuncExpr
 	f(`sum(`)
@@ -661,6 +729,7 @@ func TestParseError(t *testing.T) {
 	f(`avg by (a) (,b)`)
 	f(`sum by (x) (y) by (z)`)
 	f(`sum(m) by (1)`)
+	f(`sum(m) keep_metric_names`) // keep_metric_names cannot be used for aggregate functions
 
 	// invalid withExpr
 	f(`with $`)
@@ -680,6 +749,7 @@ func TestParseError(t *testing.T) {
 	f(`with (x=(`)
 	f(`with (x=[)`)
 	f(`with (x=() x)`)
+	f(`with(x)`)
 	f(`with ($$)`)
 	f(`with (x $$`)
 	f(`with (x = $$)`)
@@ -689,9 +759,6 @@ func TestParseError(t *testing.T) {
 	f(`with (x = a, x = b) c`)
 	f(`with (x(a, a) = b) c`)
 	f(`with (x=m{f="x"}) foo{x}`)
-	f(`with (sum = x) y`)
-	f(`with (rate(a) = b) c`)
-	f(`with (clamp_min=x) y`)
 	f(`with (f()`)
 	f(`with (a=b c=d) e`)
 	f(`with (f(x)=x^2) m{x}`)
@@ -717,4 +784,11 @@ func TestParseError(t *testing.T) {
 	f(`with (f(x) = sum(m) by (x)) f((xx(), {foo="bar"}))`)
 	f(`with (f(x) = m + on (x) n) f(xx())`)
 	f(`with (f(x) = m + on (a) group_right (x) n) f(xx())`)
+	f(`with (f(x) = m keep_metric_names)`)
+	f(`with (now)`)
+	f(`with (sum)`)
+	f(`with (now=now()) now(1)`)
+	f(`with (f())`)
+	f(`with (sum(a,b)=a+b) sum(x)`)
+	f(`with (rate()=foobar) rate(x)`)
 }
